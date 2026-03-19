@@ -1,0 +1,10 @@
+name: cv-concurrent-env
+channels:
+  - conda-forge
+dependencies:
+  - python=3.8
+  - pip
+  - pip:
+    # Inference server capabilities built into AzureML BYOC environments
+    - azureml-inference-server-http
+    - azureml-defaults

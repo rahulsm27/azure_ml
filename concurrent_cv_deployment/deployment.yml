@@ -1,0 +1,18 @@
+$schema: https://azuremlschemas.azureedge.net/latest/managedOnlineDeployment.schema.json
+name: cv-concurrent-deployment
+endpoint_name: my-concurrent-cv-endpoint
+model:
+  path: ../models/ # Adjust based on user's actual model weights
+code_configuration:
+  code: ./src
+  scoring_script: score.py
+environment:
+  conda_file: ./environment.yml
+  image: mcr.microsoft.com/azureml/minimal-ubuntu20.04-py38-cpu-inference:latest
+instance_type: Standard_F4s_v2 # Standard CPU optimized compute with 4 cores
+instance_count: 1
+environment_variables:
+  # CRITICAL REQUIREMENT: "number of workers = 1"
+  # Ensures only 1 main worker process runs.
+  # Concurrency is handled internally via asyncio event loop + ProcessPoolExecutor
+  WORKER_COUNT: "1"
