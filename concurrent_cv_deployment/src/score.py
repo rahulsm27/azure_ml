@@ -1,16 +1,16 @@
 import json
 import time
 import logging
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 
 # Initialize logger for endpoint
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-# We use ProcessPoolExecutor for CPU-bound Computer Vision tasks.
-# This ensures that tasks leverage multiple CPU cores and bypass 
-# the Python Global Interpreter Lock (GIL), allowing them to run 
-# truly simultaneously.
+# We use ThreadPoolExecutor because Azure ML dynamically wraps score.py as 'entry_module',
+# which breaks Python's ProcessPool pickling. Heavy CV libraries (PyTorch, OpenCV, ONNX) 
+# natively release the Python GIL during computation, meaning ThreadPoolExecutor will still
+# successfully evaluate them purely in parallel across multiple CPU cores!
 executor = None
 
 def init():
@@ -20,18 +20,18 @@ def init():
     """
     global executor
     
-    # Initialize process pool with desired number of concurrent worker processes.
+    # Initialize thread pool with desired number of concurrent worker threads.
     # We are simulating multiple cores, so max_workers=4 is used as an example.
-    executor = ProcessPoolExecutor(max_workers=4)
-    logger.info("ProcessPoolExecutor initialized with 4 max workers.")
+    executor = ThreadPoolExecutor(max_workers=4)
+    logger.info("ThreadPoolExecutor initialized with 4 max workers.")
 
 def cv_task(raw_data):
     """
     This function simulates a heavy Computer Vision task.
-    It runs in a separate process in the pool, avoiding blocking the main event loop thread.
+    It runs in a separate thread from the pool, avoiding blocking the main request receiver.
     """
     # Parse json data (Optional based on your actual data payload format)
-    logger.info("Starting CV task in separate process worker...")
+    logger.info("Starting CV task in separate background thread...")
     
     # Simulate a heavy computational CV task taking exactly 10 seconds
     time.sleep(10)
@@ -52,10 +52,10 @@ def run(raw_data):
     """
     logger.info("Received prediction request. Submitting to process pool...")
     
-    # Offload the blocking CPU-bound CV task to the process pool so we don't hog the GIL.
+    # Offload the blocking CPU-bound CV task to the thread pool so we don't hog the main thread.
     # By calling .result(), this specific HTTP worker thread blocks and waits for the CPU core to finish.
     # However, because we configured Gunicorn with multiple threads in deployment.yml, 
-    # the main HTTP process is instantly free to dispatch the next request to another thread simultaneously!
+    # the main HTTP process is instantly free to dispatch the next request to another instance simultaneously!
     future = executor.submit(cv_task, raw_data)
     result = future.result()
     
