@@ -11,8 +11,12 @@ environment:
   image: mcr.microsoft.com/azureml/minimal-ubuntu20.04-py38-cpu-inference:latest
 instance_type: Standard_F4s_v2 # Standard CPU optimized compute with 4 cores
 instance_count: 1
+request_settings:
+  max_concurrent_requests_per_instance: 4
+  request_timeout_ms: 60000 # Sets timeout to 60 seconds for the duration of the tasks
 environment_variables:
   # CRITICAL REQUIREMENT: "number of workers = 1"
   # Ensures only 1 main worker process runs.
-  # Concurrency is handled internally via asyncio event loop + ProcessPoolExecutor
   WORKER_COUNT: "1"
+  # Instructs Gunicorn (the underlying server) to spawn multiple threads so the single worker can handle multiple requests concurrently.
+  GUNICORN_CMD_ARGS: "--threads 4"

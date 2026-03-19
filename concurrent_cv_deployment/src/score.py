@@ -1,6 +1,5 @@
 import json
 import time
-import asyncio
 import logging
 from concurrent.futures import ProcessPoolExecutor
 
@@ -45,23 +44,20 @@ def cv_task(raw_data):
         "processing_time_seconds": 10
     }
 
-async def run(raw_data):
+def run(raw_data):
     """
-    The main thread handles incoming HTTP scoring requests concurrently.
-    By using `async def`, Azure ML's serving framework treats this as a coroutine.
+    Handles incoming HTTP scoring requests concurrently.
+    Because the Azure ML Inference server uses Flask natively, it does not support `async def`.
+    Instead, we use Gunicorn threads (`WORKER_COUNT=1`, `--threads 4`) to achieve concurrency.
     """
     logger.info("Received prediction request. Submitting to process pool...")
     
-    # Get the current asyncio event loop (the main thread's loop handling the HTTP web server)
-    loop = asyncio.get_running_loop()
-    
-    # Offload the blocking CPU-bound CV task to the process pool.
-    # We `await` its completion. This is critical:
-    # 1) The HTTP request connection stays open.
-    # 2) BUT, the main thread's event loop is *freed immediately*. 
-    # 3) The main thread can concurrently accept and dispatch the next incoming request
-    #    while this particular task is crunching away on another CPU core.
-    result = await loop.run_in_executor(executor, cv_task, raw_data)
+    # Offload the blocking CPU-bound CV task to the process pool so we don't hog the GIL.
+    # By calling .result(), this specific HTTP worker thread blocks and waits for the CPU core to finish.
+    # However, because we configured Gunicorn with multiple threads in deployment.yml, 
+    # the main HTTP process is instantly free to dispatch the next request to another thread simultaneously!
+    future = executor.submit(cv_task, raw_data)
+    result = future.result()
     
     logger.info("Task finished! Returning result to the client.")
     return result

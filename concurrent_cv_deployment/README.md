@@ -10,8 +10,8 @@ This repository contains code required to deploy a mock Computer Vision (CV) mod
 1. **Single Worker (`WORKER_COUNT=1`)**: 
    We configure Azure ML to spawn exactly one main Python worker process in `deployment.yml`.
 
-2. **Main Thread Context (`async def run`)**: 
-   The Azure ML inference server is built on FastAPI. We utilize `asyncio`, meaning the Azure ML serving framework evaluates our prediction runner as a coroutine. The main OS thread utilizes an event loop to handle incoming HTTP connections sequentially but concurrently.
+2. **Multi-threaded Worker (`GUNICORN_CMD_ARGS: "--threads 4"`)**: 
+   The default Azure ML HTTP inference server uses Flask and Gunicorn. Because Flask is natively synchronous, it does not support `async def`. Instead, we get concurrency by telling Gunicorn to use multiple threads. The single main worker process efficiently distributes incoming HTTP requests to these threads concurrently.
 
 3. **Simultaneous Processing on Multiple Cores (`ProcessPoolExecutor`)**: 
    Computer Vision tasks are mostly CPU-bound. If run natively in the main event loop, they would block everything due to the Global Interpreter Lock (GIL). 
@@ -20,13 +20,13 @@ This repository contains code required to deploy a mock Computer Vision (CV) mod
 ## How it works (Execution flow)
 
 1. **Request 1** hits the endpoint. 
-   - The main event loop accepts it, offloads the 10-second CV job to the `ProcessPoolExecutor`, and `await`s the result. 
-   - `await` explicitly returns control of the main thread back to the runtime/OS.
+   - Gunicorn assigns it to Thread #1. Thread #1 offloads the 10-second CV job to the `ProcessPoolExecutor`, and calls `.result()` to wait.
+   - Thread #1 is now explicitly blocked, but the Python GIL is released by the ProcessPool.
 2. **Request 2** arrives simultaneously. 
-   - Because Request 1 yielded the main thread, the server instantly accepts Request 2.
-   - It offloads Request 2 to a second available core on the process pool, and it yields control using `await`.
-3. **Simultaneous Compute**: Both CV jobs run in full parallelism completely detached from the single HTTP worker process.
-4. **Resolution**: As each CV job completes (after 10s), their respective `await` statements complete, and the server returns the HTTP response back to the client natively. 
+   - The main HTTP process instantly accepts Request 2 and assigns it to Thread #2.
+   - Thread #2 offloads Request 2 to a second available core on the process pool, and waits.
+3. **Simultaneous Compute**: Both CV jobs run in full parallelism on separate CPU cores completely independently of the HTTP worker threads.
+4. **Resolution**: As each CV job completes (after 10s), their respective Gunicorn thread unblocks, and the server returns the HTTP response back to the client natively. 
 
 ## Files structure
 
