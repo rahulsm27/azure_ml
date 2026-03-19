@@ -1,0 +1,7 @@
+$schema: https://azuremlschemas.azureedge.net/latest/model.schema.json
+name: concurrent-cv-dummy-model
+description: A dummy model registered via CLI for testing concurrent CV deployments.
+path: ./models/dummy_model/
+tags:
+  task: Computer Vision
+  status: dummy_test
