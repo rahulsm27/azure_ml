@@ -15,22 +15,13 @@ def deploy_concurrent_cv_endpoint():
     # DefaultAzureCredential will automatically pick up Azure CLI login
     credential = DefaultAzureCredential()
 
-    # NOTE: Set these variables before running!
-    # e.g., export AZURE_SUBSCRIPTION_ID="your_subs_id"
-    subscription_id = os.environ.get("AZURE_SUBSCRIPTION_ID", "<YOUR_SUBSCRIPTION_ID>")
-    resource_group = os.environ.get("AZURE_RESOURCE_GROUP", "<YOUR_RESOURCE_GROUP>")
-    workspace_name = os.environ.get("AZURE_WORKSPACE_NAME", "<YOUR_WORKSPACE_NAME>")
-
-    print(f"Connecting to workspace: {workspace_name}...")
+    # Use MLClient.from_config to load workspace details from .azureml/config.json
+    print("Connecting to workspace via config.json...")
     try:
-        ml_client = MLClient(
-            credential, 
-            subscription_id, 
-            resource_group, 
-            workspace_name
-        )
+        ml_client = MLClient.from_config(credential=credential)
+        print(f"Successfully connected to workspace: {ml_client.workspace_name}")
     except Exception as e:
-        print(f"Failed to initialize MLClient. Check credentials and workspace info.\n{e}")
+        print(f"Failed to initialize MLClient from config. Ensure a valid config.json exists.\n{e}")
         return
 
     endpoint_name = "my-concurrent-cv-endpoint"
@@ -64,14 +55,22 @@ def deploy_concurrent_cv_endpoint():
     )
 
     # ==========================================================
-    # 3. Create the Deployment
+    # 3. Fetch Latest Model & Create the Deployment
     # ==========================================================
-    # Note: We are deploying the dummy model folder we created earlier.
-    print(f"\n[2/3] Creating/Updating Online Deployment '{deployment_name}'... This may take 5-15 minutes.")
+    model_name = "concurrent-cv-dummy-model"
+    print(f"\n[2/3] Fetching latest version of model '{model_name}' from registry...")
+    try:
+        latest_model = ml_client.models.get(name=model_name, label="latest")
+        print(f"Successfully retrieved model version: {latest_model.version}")
+    except Exception as e:
+        print(f"Failed to fetch model. Did you run the registration script first?\n{e}")
+        return
+
+    print(f"\n[3/3] Creating/Updating Online Deployment '{deployment_name}' using model version {latest_model.version}... This may take 5-15 minutes.")
     deployment = ManagedOnlineDeployment(
         name=deployment_name,
         endpoint_name=endpoint_name,
-        model=Model(path="./models/dummy_model/"),
+        model=latest_model,
         environment=env,
         code_configuration=code_config,
         instance_type="Standard_F4s_v2",
